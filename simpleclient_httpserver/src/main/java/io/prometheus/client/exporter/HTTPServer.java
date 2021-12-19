@@ -72,6 +72,9 @@ public class HTTPServer implements Closeable {
         private final LocalByteArray response = new LocalByteArray();
         private final Supplier<Predicate<String>> sampleNameFilterSupplier;
         private final static String HEALTHY_RESPONSE = "Exporter is Healthy.";
+        private Integer metricRequests = 0;
+        private Integer healthRequests = 0;
+        private Integer reqCountRequests = 0;
 
         public HTTPMetricHandler(CollectorRegistry registry) {
             this(registry, null);
@@ -90,8 +93,14 @@ public class HTTPServer implements Closeable {
             response.reset();
             OutputStreamWriter osw = new OutputStreamWriter(response, Charset.forName("UTF-8"));
             if ("/-/healthy".equals(contextPath)) {
+                healthRequests++;
                 osw.write(HEALTHY_RESPONSE);
+            } else if("/-/req-count".equals(contextPath)) {
+                reqCountRequests++;
+                Integer totalReqs = metricRequests + healthRequests + reqCountRequests;
+                osw.write(totalReqs.toString());
             } else {
+                metricRequests++;
                 String contentType = TextFormat.chooseContentType(t.getRequestHeaders().getFirst("Accept"));
                 t.getResponseHeaders().set("Content-Type", contentType);
                 Predicate<String> filter = sampleNameFilterSupplier == null ? null : sampleNameFilterSupplier.get();
@@ -116,7 +125,9 @@ public class HTTPServer implements Closeable {
                 }
             } else {
                 long contentLength = response.size();
-                t.getResponseHeaders().set("Content-Length", String.valueOf(contentLength));
+                if (contentLength > 0) {
+                    t.getResponseHeaders().set("Content-Length", String.valueOf(contentLength));
+                }
                 if (t.getRequestMethod().equals("HEAD")) {
                     contentLength = -1;
                 }
@@ -132,11 +143,8 @@ public class HTTPServer implements Closeable {
         if (encodingHeaders == null) return false;
 
         for (String encodingHeader : encodingHeaders) {
-            String[] encodings = encodingHeader.split(",");
-            for (String encoding : encodings) {
-                if (encoding.trim().equalsIgnoreCase("gzip")) {
-                    return true;
-                }
+            if (encodingHeader.equals("gzip")) {
+                return true;
             }
         }
         return false;
@@ -429,6 +437,10 @@ public class HTTPServer implements Closeable {
             mContext.setAuthenticator(authenticator);
         }
         mContext = server.createContext("/-/healthy", mHandler);
+        if (authenticator != null) {
+            mContext.setAuthenticator(authenticator);
+        }
+        mContext = server.createContext("/-/req-count", mHandler);
         if (authenticator != null) {
             mContext.setAuthenticator(authenticator);
         }
